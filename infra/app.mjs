@@ -27,9 +27,12 @@ bucket.addToResourcePolicy(new iam.PolicyStatement({ effect: iam.Effect.DENY, ac
   principals: [new iam.ServicePrincipal('cloudfront.amazonaws.com')], notResources: [bucket.arnForObjects('assets/*')],
   conditions: { StringEquals: { 'AWS:SourceArn': `arn:aws:cloudfront::${stack.account}:distribution/${distribution.distributionId}` } },
 }));
-// Content-addressed assets are write-once even if a publisher bypasses the CLI.
+// Immutable release material is write-once even if a caller bypasses the CLI.
 bucket.addToResourcePolicy(new iam.PolicyStatement({ effect: iam.Effect.DENY, actions: ['s3:PutObject'],
-  principals: [new iam.AnyPrincipal()], resources: [bucket.arnForObjects('assets/*')],
+  principals: [new iam.AnyPrincipal()], resources: [
+    bucket.arnForObjects('assets/*'), bucket.arnForObjects('releases/*'), bucket.arnForObjects('tested/*'),
+    bucket.arnForObjects('runtimes/*'), bucket.arnForObjects('directives/*'),
+  ],
   conditions: { Null: { 's3:if-none-match': 'true' } },
 }));
 const signingKey = new secrets.Secret(stack, 'SigningKey', {

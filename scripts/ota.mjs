@@ -61,7 +61,10 @@ if (command === 'register-build') {
   const noUpdate = signedEnvelope('directive', { type: 'noUpdateAvailable' }, await privateKey(), certificate, target);
   const directiveKey = `directives/${target.channel}/${target.platform}/${target.runtimeVersion}.json`;
   const existingDirective = await read(directiveKey, true);
-  if (existingDirective) validateEnvelope(existingDirective.data, certificate, target);
+  if (existingDirective) {
+    const directive = validateEnvelope(existingDirective.data, certificate, target);
+    if (directive.type !== 'noUpdateAvailable') throw new Error('Registered no-update directive has an invalid type');
+  }
   else await put(directiveKey, noUpdate, true);
 } else {
   await requireRuntime();
@@ -75,7 +78,12 @@ if (command === 'register-build') {
       try {
         await s3.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: asset.bytes, ContentType: asset.contentType,
           CacheControl: 'public, max-age=31536000, immutable', Metadata: { sha256: asset.hash }, IfNoneMatch: '*' }));
-      } catch (e) { if (e.$metadata?.httpStatusCode !== 412) throw e; }
+      } catch (e) {
+        if (e.$metadata?.httpStatusCode !== 412) throw e;
+        const stored = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+        const storedHash = createHash('sha256').update(Buffer.from(await stored.Body.transformToByteArray())).digest('base64url');
+        if (storedHash !== asset.hash) throw new Error('Existing content-addressed asset bytes do not match their key');
+      }
     }
     const id = JSON.parse(envelope.body).id;
     await put(releaseKey(id), { ...envelope, sourceSha, environment }, true);
