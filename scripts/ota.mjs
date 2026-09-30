@@ -58,7 +58,7 @@ if (command === 'register-build') {
   const existing = await read(key, true);
   if (existing && existing.data.certificateHash !== data.certificateHash) throw new Error('Runtime already registered with another certificate');
   if (!existing) await put(key, data, true);
-  const noUpdate = signedEnvelope('directive', { type: 'noUpdateAvailable' }, await privateKey(), certificate, target, assetBaseUrl);
+  const noUpdate = signedEnvelope('directive', { type: 'noUpdateAvailable' }, await privateKey(), certificate, target);
   const directiveKey = `directives/${target.channel}/${target.platform}/${target.runtimeVersion}.json`;
   const existingDirective = await read(directiveKey, true);
   if (existingDirective) validateEnvelope(existingDirective.data, certificate, target);
@@ -97,7 +97,10 @@ if (command === 'register-build') {
     const previewKey = `releases/production-preview/${options.release}/${target.platform}.json`;
     const envelope = (await read(previewKey)).data;
     if (envelope.environment !== (target.channel === 'staging' ? 'staging' : 'production')) throw new Error('Cannot promote across backend environments');
-    await put(releaseKey(options.release), envelope, true);
+    const destinationKey = releaseKey(options.release);
+    const existing = await read(destinationKey, true);
+    if (existing && JSON.stringify(existing.data) !== JSON.stringify(envelope)) throw new Error('Production release ID already contains different bytes');
+    if (!existing) await put(destinationKey, envelope, true);
     await activate(options.release);
   } else if (command === 'rollback') {
     const id = randomUUID();

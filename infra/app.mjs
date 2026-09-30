@@ -27,6 +27,11 @@ bucket.addToResourcePolicy(new iam.PolicyStatement({ effect: iam.Effect.DENY, ac
   principals: [new iam.ServicePrincipal('cloudfront.amazonaws.com')], notResources: [bucket.arnForObjects('assets/*')],
   conditions: { StringEquals: { 'AWS:SourceArn': `arn:aws:cloudfront::${stack.account}:distribution/${distribution.distributionId}` } },
 }));
+// Content-addressed assets are write-once even if a publisher bypasses the CLI.
+bucket.addToResourcePolicy(new iam.PolicyStatement({ effect: iam.Effect.DENY, actions: ['s3:PutObject'],
+  principals: [new iam.AnyPrincipal()], resources: [bucket.arnForObjects('assets/*')],
+  conditions: { Null: { 's3:if-none-match': 'true' } },
+}));
 const signingKey = new secrets.Secret(stack, 'SigningKey', {
   secretName: 'brokr-updates/signing-key', description: 'Dedicated OTA RSA private key; populated by bootstrap, never used by serving Lambda',
   removalPolicy: RemovalPolicy.RETAIN,
@@ -81,6 +86,7 @@ for (const channel of ['staging', 'production-preview', 'production']) {
 }
 const registrar = role('BuildRegistrar', 'Brokr-App', 'ota-build-registration');
 bucket.grantRead(registrar, 'runtimes/*');
+bucket.grantRead(registrar, 'directives/*');
 signingKey.grantRead(registrar);
 registrar.addToPolicy(new iam.PolicyStatement({ actions: ['s3:PutObject'], resources: [bucket.arnForObjects('runtimes/*'), bucket.arnForObjects('directives/*')] }));
 const deployer = role('Deployer', 'brokr-updates-server', 'ota-infrastructure');

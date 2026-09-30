@@ -83,7 +83,6 @@ export async function serve(event, { readPointer, readRelease, readNoUpdate, cer
     if (!pointer) return renderEnvelope(await readNoUpdate(target), target, accepts, certificate, assetBaseUrl, commonHeaders, fail);
     if (!/^[a-f0-9-]{36}$/.test(pointer.releaseId ?? '')) throw new Error('Invalid pointer');
     const envelope = await readRelease(pointer.releaseId, target);
-    if (envelope.assetBaseUrl !== assetBaseUrl) throw new Error('Invalid asset origin');
     const data = validateEnvelope(envelope, certificate, target);
     if ((envelope.kind === 'manifest' && data.id === headers['expo-current-update-id']) ||
         (envelope.kind === 'directive' && headers['expo-current-update-id'] &&
@@ -99,7 +98,7 @@ export async function serve(event, { readPointer, readRelease, readNoUpdate, cer
 }
 
 function renderEnvelope(envelope, target, accepts, certificate, assetBaseUrl, commonHeaders, fail) {
-  if (envelope.assetBaseUrl !== assetBaseUrl) throw new Error('Invalid asset origin');
+  if (envelope.kind === 'manifest' && envelope.assetBaseUrl !== assetBaseUrl) throw new Error('Invalid asset origin');
   validateEnvelope(envelope, certificate, target);
   const signature = serializeDictionary(new Map([
       ['sig', [envelope.signature, new Map()]], ['keyid', ['main', new Map()]], ['alg', ['rsa-v1_5-sha256', new Map()]],

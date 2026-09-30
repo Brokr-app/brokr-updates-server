@@ -16,7 +16,7 @@ const assetBaseUrl = 'https://assets.example.com';
 const manifest = { id: '11111111-1111-4111-8111-111111111111', createdAt: new Date().toISOString(), runtimeVersion: target.runtimeVersion,
   launchAsset: { hash: 'a'.repeat(43), key: 'bundle', url: `${assetBaseUrl}/assets/bundle`, contentType: 'application/javascript' }, assets: [], metadata: {}, extra: {} };
 const envelope = () => signedEnvelope('manifest', manifest, privateKey, certificate, target, assetBaseUrl);
-const noUpdate = () => signedEnvelope('directive', { type: 'noUpdateAvailable' }, privateKey, certificate, target, assetBaseUrl);
+const noUpdate = () => signedEnvelope('directive', { type: 'noUpdateAvailable' }, privateKey, certificate, target);
 const event = (headers = {}) => ({ requestContext: { http: { method: 'GET' } }, headers: { 'expo-protocol-version': '1', 'expo-platform': 'ios', 'expo-runtime-version': target.runtimeVersion, 'expo-channel-name': 'staging', accept: 'multipart/mixed', 'expo-expect-signature': 'sig, keyid="main", alg="rsa-v1_5-sha256"', ...headers } });
 const deps = (changes = {}) => ({ certificate, assetBaseUrl, readPointer: async () => ({ releaseId: manifest.id }), readRelease: async () => envelope(), readNoUpdate: async () => noUpdate(), ...changes });
 

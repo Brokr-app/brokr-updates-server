@@ -32,7 +32,7 @@ const verifyPart = async (response, name, expected) => {
   assert.ok(verify('RSA-SHA256', Buffer.from(expected), new X509Certificate(certificate).publicKey, Buffer.from(signature, 'base64')));
 };
 try {
-  const noUpdate = signedEnvelope('directive', { type: 'noUpdateAvailable' }, privateKey, certificate, target, outputs.AssetBaseUrl);
+  const noUpdate = signedEnvelope('directive', { type: 'noUpdateAvailable' }, privateKey, certificate, target);
   await put(`directives/staging/android/${target.runtimeVersion}.json`, noUpdate);
   await verifyPart(await request(), 'directive', noUpdate.body);
   const { envelope, uploads } = await prepareRelease({ exportDirectory: dir, expoConfig: {}, target, privateKey, certificate, assetBaseUrl: outputs.AssetBaseUrl, sourceSha: 'a'.repeat(40) });
