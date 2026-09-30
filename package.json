@@ -1,0 +1,28 @@
+{
+  "name": "@brokr/updates-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.15.0 <25"
+  },
+  "packageManager": "npm@11.16.0",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "build": "node scripts/build.mjs",
+    "synth": "cdk synth",
+    "deploy": "npm run build && cdk deploy --outputs-file deployment.json"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.0.0",
+    "@aws-sdk/client-secrets-manager": "^3.0.0",
+    "mime": "^4.0.0",
+    "structured-headers": "^2.0.0"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2.0.0",
+    "aws-cdk-lib": "2.272.0",
+    "constructs": "^10.4.0",
+    "esbuild": "^0.25.0"
+  }
+}
