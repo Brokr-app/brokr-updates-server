@@ -43,8 +43,10 @@ export function validateEnvelope(envelope, certificate, target) {
         throw new Error('Invalid asset');
       }
     }
-  } else if (data.type !== 'rollBackToEmbedded' || !Number.isFinite(Date.parse(data.parameters?.commitTime))) {
-    throw new Error('Invalid rollback directive');
+  } else if (data.type === 'rollBackToEmbedded') {
+    if (!Number.isFinite(Date.parse(data.parameters?.commitTime))) throw new Error('Invalid rollback directive');
+  } else if (data.type !== 'noUpdateAvailable') {
+    throw new Error('Invalid update directive');
   }
   return data;
 }
@@ -55,7 +57,7 @@ const commonHeaders = {
 };
 
 /** Serve Expo Updates v1 using pre-signed manifests and directives. */
-export async function serve(event, { readPointer, readRelease, certificate, assetBaseUrl }) {
+export async function serve(event, { readPointer, readRelease, readNoUpdate, certificate, assetBaseUrl }) {
   const headers = Object.fromEntries(Object.entries(event.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
   const fail = (statusCode, message) => ({ statusCode, headers: { ...commonHeaders, 'content-type': 'application/json' }, body: JSON.stringify({ error: message }) });
   if (event.requestContext?.http?.method !== 'GET') return fail(405, 'Expected GET');
@@ -78,34 +80,40 @@ export async function serve(event, { readPointer, readRelease, certificate, asse
   } catch { return fail(400, 'Malformed signature request'); }
   try {
     const pointer = await readPointer(target);
-    if (!pointer) return { statusCode: 204, headers: commonHeaders, body: '' };
+    if (!pointer) return renderEnvelope(await readNoUpdate(target), target, accepts, certificate, assetBaseUrl, commonHeaders, fail);
     if (!/^[a-f0-9-]{36}$/.test(pointer.releaseId ?? '')) throw new Error('Invalid pointer');
-    const envelope = await readRelease(pointer.releaseId, target.platform);
+    const envelope = await readRelease(pointer.releaseId, target);
     if (envelope.assetBaseUrl !== assetBaseUrl) throw new Error('Invalid asset origin');
     const data = validateEnvelope(envelope, certificate, target);
     if ((envelope.kind === 'manifest' && data.id === headers['expo-current-update-id']) ||
         (envelope.kind === 'directive' && headers['expo-current-update-id'] &&
          headers['expo-current-update-id'] === headers['expo-embedded-update-id'])) {
-      return { statusCode: 204, headers: commonHeaders, body: '' };
+      return renderEnvelope(await readNoUpdate(target), target, accepts, certificate, assetBaseUrl, commonHeaders, fail);
     }
-    const signature = serializeDictionary(new Map([
-      ['sig', [envelope.signature, new Map()]], ['keyid', ['main', new Map()]], ['alg', ['rsa-v1_5-sha256', new Map()]],
-    ]));
-    if (accepts('multipart/mixed')) {
-      const boundary = `brokr-${randomUUID()}`;
-      return {
-        statusCode: 200,
-        headers: { ...commonHeaders, 'content-type': `multipart/mixed; boundary=${boundary}` },
-        body: `--${boundary}\r\ncontent-disposition: form-data; name="${envelope.kind}"\r\ncontent-type: application/json\r\nexpo-signature: ${signature}\r\n\r\n${envelope.body}\r\n--${boundary}--\r\n`,
-      };
-    }
-    if (envelope.kind === 'manifest' && (accepts('application/expo+json') || accepts('application/json'))) {
-      return { statusCode: 200, headers: { ...commonHeaders, 'content-type': accepts('application/expo+json') ? 'application/expo+json' : 'application/json', 'expo-signature': signature }, body: envelope.body };
-    }
-    return fail(406, 'Requested response format unavailable');
+    return renderEnvelope(envelope, target, accepts, certificate, assetBaseUrl, commonHeaders, fail);
   } catch {
     // Public responses and logs must not expose manifests, request headers, or credentials.
     console.error('OTA storage or integrity failure');
     return fail(503, 'Update service temporarily unavailable');
   }
+}
+
+function renderEnvelope(envelope, target, accepts, certificate, assetBaseUrl, commonHeaders, fail) {
+  if (envelope.assetBaseUrl !== assetBaseUrl) throw new Error('Invalid asset origin');
+  validateEnvelope(envelope, certificate, target);
+  const signature = serializeDictionary(new Map([
+      ['sig', [envelope.signature, new Map()]], ['keyid', ['main', new Map()]], ['alg', ['rsa-v1_5-sha256', new Map()]],
+  ]));
+  if (accepts('multipart/mixed')) {
+    const boundary = `brokr-${randomUUID()}`;
+    return {
+      statusCode: 200,
+      headers: { ...commonHeaders, 'content-type': `multipart/mixed; boundary=${boundary}` },
+      body: `--${boundary}\r\ncontent-disposition: form-data; name="${envelope.kind}"\r\ncontent-type: application/json\r\nexpo-signature: ${signature}\r\n\r\n${envelope.body}\r\n--${boundary}--\r\n`,
+    };
+  }
+  if (envelope.kind === 'manifest' && (accepts('application/expo+json') || accepts('application/json'))) {
+    return { statusCode: 200, headers: { ...commonHeaders, 'content-type': accepts('application/expo+json') ? 'application/expo+json' : 'application/json', 'expo-signature': signature }, body: envelope.body };
+  }
+  return fail(406, 'Requested response format unavailable');
 }

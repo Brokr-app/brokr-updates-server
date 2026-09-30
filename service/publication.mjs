@@ -3,7 +3,7 @@ import { targetKey, validateEnvelope } from './protocol.mjs';
 
 /** Validate a complete release before conditionally switching its single runtime pointer. */
 export async function activateRelease({ id, target, certificate, assetBaseUrl, read, headAsset, writePointer }) {
-  const envelope = (await read(`releases/${id}/${target.platform}.json`)).data;
+  const envelope = (await read(`releases/${target.channel}/${id}/${target.platform}.json`)).data;
   if (envelope.assetBaseUrl !== assetBaseUrl) throw new Error('Wrong asset origin');
   const data = validateEnvelope(envelope, certificate, target);
   if (target.channel === 'production' && envelope.kind === 'manifest') {
@@ -20,7 +20,7 @@ export async function activateRelease({ id, target, certificate, assetBaseUrl, r
   const key = `channels/${targetKey(target)}`;
   const previous = await read(key, true);
   if (previous && envelope.kind === 'manifest') {
-    const older = (await read(`releases/${previous.data.releaseId}/${target.platform}.json`)).data;
+    const older = (await read(`releases/${target.channel}/${previous.data.releaseId}/${target.platform}.json`)).data;
     const oldData = validateEnvelope(older, certificate, target);
     const oldTime = older.kind === 'manifest' ? oldData.createdAt : oldData.parameters.commitTime;
     if (Date.parse(data.createdAt) <= Date.parse(oldTime)) {

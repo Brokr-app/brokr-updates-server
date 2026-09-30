@@ -23,7 +23,8 @@ export const handler = async (event) => {
     return await serve(event, {
       certificate, assetBaseUrl: configuration.assetBaseUrl,
       readPointer: (target) => readJson(`channels/${targetKey(target)}`, true),
-      readRelease: (id, platform) => readJson(`releases/${id}/${platform}.json`),
+      readRelease: (id, target) => readJson(`releases/${target.channel}/${id}/${target.platform}.json`),
+      readNoUpdate: (target) => readJson(`directives/${target.channel}/${target.platform}/${target.runtimeVersion}.json`),
     });
   } catch {
     console.error('OTA storage or integrity failure');

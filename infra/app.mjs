@@ -41,6 +41,7 @@ const fn = new lambda.Function(stack, 'Manifest', {
 });
 bucket.grantRead(fn, 'channels/*');
 bucket.grantRead(fn, 'releases/*');
+bucket.grantRead(fn, 'directives/*');
 bucket.grantRead(fn, 'config/*');
 const functionUrl = fn.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.AWS_IAM });
 distribution.addBehavior('/manifest', origins.FunctionUrlOrigin.withOriginAccessControl(functionUrl), {
@@ -68,13 +69,20 @@ const role = (id, repo, environment) => new iam.Role(stack, id, {
 for (const channel of ['staging', 'production-preview', 'production']) {
   const publisher = role(`Publisher-${channel}`, 'Brokr-App', `ota-${channel}`);
   signingKey.grantRead(publisher);
-  bucket.grantRead(publisher);
-  publisher.addToPolicy(new iam.PolicyStatement({ actions: ['s3:PutObject'], resources: [bucket.arnForObjects('assets/*'), bucket.arnForObjects('releases/*'), bucket.arnForObjects(`channels/${channel}/*`), bucket.arnForObjects(`tested/${channel}/*`)] }));
+  bucket.grantRead(publisher, 'assets/*');
+  bucket.grantRead(publisher, 'runtimes/*');
+  bucket.grantRead(publisher, `channels/${channel}/*`);
+  bucket.grantRead(publisher, `releases/${channel}/*`);
+  bucket.grantRead(publisher, `tested/${channel}/*`);
+  const extraReads = channel === 'production' ? [bucket.arnForObjects('releases/production-preview/*'), bucket.arnForObjects('tested/production-preview/*')] : [];
+  if (extraReads.length) publisher.addToPolicy(new iam.PolicyStatement({ actions: ['s3:GetObject'], resources: extraReads }));
+  publisher.addToPolicy(new iam.PolicyStatement({ actions: ['s3:PutObject'], resources: [bucket.arnForObjects('assets/*'), bucket.arnForObjects(`releases/${channel}/*`), bucket.arnForObjects(`channels/${channel}/*`), bucket.arnForObjects(`tested/${channel}/*`)] }));
   new CfnOutput(stack, `PublisherRole-${channel}`, { value: publisher.roleArn });
 }
 const registrar = role('BuildRegistrar', 'Brokr-App', 'ota-build-registration');
 bucket.grantRead(registrar, 'runtimes/*');
-registrar.addToPolicy(new iam.PolicyStatement({ actions: ['s3:PutObject'], resources: [bucket.arnForObjects('runtimes/*')] }));
+signingKey.grantRead(registrar);
+registrar.addToPolicy(new iam.PolicyStatement({ actions: ['s3:PutObject'], resources: [bucket.arnForObjects('runtimes/*'), bucket.arnForObjects('directives/*')] }));
 const deployer = role('Deployer', 'brokr-updates-server', 'ota-infrastructure');
 deployer.addToPolicy(new iam.PolicyStatement({ actions: ['sts:AssumeRole'], resources: [
   `arn:aws:iam::${stack.account}:role/cdk-hnb659fds-deploy-role-${stack.account}-${stack.region}`,

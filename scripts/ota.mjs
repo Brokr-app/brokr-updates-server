@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { prepareRelease, signedEnvelope } from '../service/release.mjs';
 import { validateTarget, validateEnvelope, targetKey } from '../service/protocol.mjs';
 import { activateRelease } from '../service/publication.mjs';
+import { validateBuildRegistration } from '../service/registration.mjs';
 
 const [command, ...args] = process.argv.slice(2);
 const options = {};
@@ -30,7 +31,7 @@ const put = (key, data, immutable = false, etag) => s3.send(new PutObjectCommand
 }));
 const certificate = await readFile(options.certificate ?? new URL('../certs/certificate.pem', import.meta.url), 'utf8');
 const requireRuntime = async () => {
-  const r = await read(`runtimes/${target.platform}/${target.runtimeVersion}.json`);
+  const r = await read(`runtimes/${target.channel}/${target.platform}/${target.runtimeVersion}.json`);
   const certHash = createHash('sha256').update(certificate).digest('hex');
   if (r.data.certificateHash !== certHash || r.data.platform !== target.platform || r.data.runtimeVersion !== target.runtimeVersion) throw new Error('Unregistered runtime or certificate mismatch');
 };
@@ -41,7 +42,7 @@ const privateKey = async () => {
 };
 const releaseKey = (id) => {
   if (!/^[a-f0-9-]{36}$/.test(id ?? '')) throw new Error('Invalid release ID');
-  return `releases/${id}/${target.platform}.json`;
+  return `releases/${target.channel}/${id}/${target.platform}.json`;
 };
 const activate = (id) => activateRelease({ id, target, certificate, assetBaseUrl, read,
   headAsset: (key) => s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key })),
@@ -50,16 +51,18 @@ const activate = (id) => activateRelease({ id, target, certificate, assetBaseUrl
 
 if (command === 'register-build') {
   const build = JSON.parse(await readFile(options.build, 'utf8'));
-  if (build.status !== 'FINISHED' || build.project?.id !== '7d29b388-fd9d-4fe2-9f58-649ab0e0f67d' ||
-      build.platform?.toLowerCase() !== target.platform || build.runtimeVersion !== target.runtimeVersion || build.fingerprint?.hash !== target.runtimeVersion ||
-      !['production', 'production-preview', 'staging'].includes(build.buildProfile) || !/^[a-f0-9]{40}$/.test(build.gitCommitHash ?? '')) {
-    throw new Error('Build must be a finished OTA-configured Brokr EAS build with matching runtime');
-  }
-  const key = `runtimes/${target.platform}/${target.runtimeVersion}.json`;
-  const data = { platform: target.platform, runtimeVersion: target.runtimeVersion, buildId: build.id, sourceSha: build.gitCommitHash, certificateHash: createHash('sha256').update(certificate).digest('hex') };
+  const attestation = JSON.parse(await readFile(options.attestation, 'utf8'));
+  const trust = validateBuildRegistration({ build, attestation, target, certificate, manifestUrl: `${assetBaseUrl}/manifest` });
+  const key = `runtimes/${target.channel}/${target.platform}/${target.runtimeVersion}.json`;
+  const data = { platform: target.platform, runtimeVersion: target.runtimeVersion, buildId: build.id, sourceSha: trust.sourceSha, certificateHash: trust.certificateHash };
   const existing = await read(key, true);
   if (existing && existing.data.certificateHash !== data.certificateHash) throw new Error('Runtime already registered with another certificate');
   if (!existing) await put(key, data, true);
+  const noUpdate = signedEnvelope('directive', { type: 'noUpdateAvailable' }, await privateKey(), certificate, target, assetBaseUrl);
+  const directiveKey = `directives/${target.channel}/${target.platform}/${target.runtimeVersion}.json`;
+  const existingDirective = await read(directiveKey, true);
+  if (existingDirective) validateEnvelope(existingDirective.data, certificate, target);
+  else await put(directiveKey, noUpdate, true);
 } else {
   await requireRuntime();
   if (command === 'publish') {
@@ -90,8 +93,11 @@ if (command === 'register-build') {
     if (previous && previous.data.bodyHash !== bodyHash) throw new Error('Existing test attestation differs');
     if (!previous) await put(key, { bodyHash, testedAt: new Date().toISOString() }, true);
   } else if (command === 'promote') {
-    const envelope = (await read(releaseKey(options.release))).data;
+    if (target.channel !== 'production') throw new Error('Promotion target must be production');
+    const previewKey = `releases/production-preview/${options.release}/${target.platform}.json`;
+    const envelope = (await read(previewKey)).data;
     if (envelope.environment !== (target.channel === 'staging' ? 'staging' : 'production')) throw new Error('Cannot promote across backend environments');
+    await put(releaseKey(options.release), envelope, true);
     await activate(options.release);
   } else if (command === 'rollback') {
     const id = randomUUID();
