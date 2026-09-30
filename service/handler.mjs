@@ -16,11 +16,10 @@ async function readJson(key, optional = false) {
 }
 
 /** Public read-only update endpoint; publishing is performed separately by CI. */
-let configuration;
 export const handler = async (event) => {
   try {
     // Config is seeded from deployment outputs. This avoids a CloudFront/Lambda dependency cycle.
-    configuration ??= await readJson('config/service.json');
+    const configuration = await readJson('config/service.json');
     return await serve(event, {
       certificate, assetBaseUrl: configuration.assetBaseUrl,
       readPointer: (target) => readJson(`channels/${targetKey(target)}`, true),
